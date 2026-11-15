@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FOUNDRY-9 — three-lane bomb-defusal FPS</title>
+<!--
+  FOUNDRY-9 — an original three.js tactical FPS (Counter-Strike-STYLE, never a copy).
+  5v5 bots, 3-lane industrial map, bomb plant/defuse, buy menu + economy,
+  3 weapons + frag grenade, fixed-step sim, deterministic ?shot= screenshots.
+  Judge notes: the complete game is in game/src/ — main.js (loop + ?shot=),
+  sim.js (rounds/economy/win-loss), world.js (FOUNDRY-9 map), bots.js (AI routes),
+  weapon.js (arsenal), player.js (movement), hud.js (HUD + buy menu), audio.js.
+  Six colours only: #101418 dark, #1c2126 panel, #2e353c hairline,
+  #e8e0d0 ink, #8a939c grey, #e8a33d amber.
+-->
+<style>
+  :root { --dark:#101418; --panel:#1c2126; --hair:#2e353c; --ink:#e8e0d0; --grey:#8a939c; --amber:#e8a33d; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:var(--dark); color:var(--ink);
+    font-family:ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; }
+  #game, #fallback { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #fallback { display:none; }
+  .hud { position:fixed; z-index:10; pointer-events:none; text-shadow:0 1px 2px #000; }
+  #hud-top { top:12px; left:50%; transform:translateX(-50%); text-align:center; }
+  #hud-timer { font-size:26px; font-weight:700; letter-spacing:2px; color:var(--ink); }
+  #hud-score { font-size:15px; color:var(--amber); letter-spacing:2px; }
+  #hud-alive { font-size:12px; color:var(--grey); letter-spacing:1px; margin-top:2px; }
+  #hud-bomb { font-size:13px; letter-spacing:1px; margin-top:2px; }
+  #hud-objective { top:12px; left:14px; font-size:12px; color:var(--grey); letter-spacing:1px; max-width:420px; }
+  #hud-feed { top:64px; right:14px; text-align:right; font-size:12px; color:var(--ink); line-height:1.7; }
+  #hud-feed div { background:rgba(16,20,24,.72); border-right:3px solid var(--amber); padding:1px 8px; margin-top:3px; }
+  #hud-bl { bottom:16px; left:16px; font-size:15px; line-height:1.6; }
+  #hud-health { font-size:30px; font-weight:700; }
+  #hud-health::before { content:"HP "; font-size:13px; color:var(--grey); }
+  #hud-armour::before { content:"ARMOUR "; font-size:12px; color:var(--grey); }
+  #hud-br { bottom:16px; right:16px; text-align:right; font-size:15px; line-height:1.6; }
+  #hud-ammo { font-size:30px; font-weight:700; }
+  #hud-weapon { font-size:13px; color:var(--amber); letter-spacing:1px; }
+  #hud-money { font-size:18px; color:var(--amber); }
+  #hud-grenade { font-size:12px; color:var(--grey); }
+  #crosshair { top:50%; left:50%; width:0; height:0; --gap:6px; }
+  #crosshair::before, #crosshair::after { content:""; position:absolute; background:var(--ink); box-shadow:0 0 2px #000; }
+  #crosshair::before { left:calc(-1px - var(--gap)); top:-1px; width:calc(var(--gap)*2 + 2px); height:2px; }
+  #crosshair::after { top:calc(-1px - var(--gap)); left:-1px; width:2px; height:calc(var(--gap)*2 + 2px); }
+  #hitmarker { top:50%; left:50%; width:22px; height:22px; margin:-11px 0 0 -11px; border:2px solid var(--ink);
+    opacity:0; transform:rotate(45deg); transition:opacity .15s; }
+  #hud-banner { top:22%; left:50%; transform:translateX(-50%); font-size:30px; font-weight:700; letter-spacing:3px;
+    color:var(--amber); background:rgba(16,20,24,.8); border:1px solid var(--hair); border-top:3px solid var(--amber);
+    padding:12px 26px; display:none; text-align:center; white-space:nowrap; }
+  #hud-reload, #hud-plant { bottom:120px; left:50%; transform:translateX(-50%); width:260px; font-size:13px;
+    letter-spacing:1px; text-align:center; display:none; }
+  #hud-reload .bar, #hud-plant .bar { height:6px; background:var(--amber); margin-top:4px; }
+  #hud-reload .track, #hud-plant .track { height:6px; background:var(--hair); margin-top:4px; }
+  #hud-hint { bottom:6px; left:50%; transform:translateX(-50%); font-size:12px; color:var(--grey); letter-spacing:1px; white-space:nowrap; }
+  #hud-mute { top:12px; right:14px; font-size:12px; color:var(--grey); }
+  #buy-menu { top:50%; left:50%; transform:translate(-50%,-50%); width:420px; background:rgba(16,20,24,.94);
+    border:1px solid var(--hair); border-top:3px solid var(--amber); padding:16px 18px; display:none;
+    pointer-events:auto; z-index:20; }
+  #buy-menu h2 { font-size:16px; letter-spacing:2px; color:var(--amber); margin-bottom:4px; }
+  #buy-menu p { font-size:12px; color:var(--grey); margin-bottom:10px; }
+  .buy-row { display:flex; justify-content:space-between; padding:9px 8px; border:1px solid var(--hair);
+    margin-top:6px; cursor:pointer; font-size:14px; }
+  .buy-row:hover { border-color:var(--amber); background:var(--panel); }
+  .buy-row.cant { opacity:.45; }
+  .buy-row span { color:var(--grey); font-size:12px; }
+  #scoreboard { top:50%; left:50%; transform:translate(-50%,-50%); width:560px; background:rgba(16,20,24,.94);
+    border:1px solid var(--hair); padding:14px 16px; display:none; z-index:20; }
+  #scoreboard h2 { font-size:15px; letter-spacing:2px; color:var(--amber); margin-bottom:8px; }
+  #scoreboard table { width:100%; border-collapse:collapse; font-size:13px; }
+  #scoreboard td, #scoreboard th { padding:4px 6px; text-align:left; border-bottom:1px solid var(--hair); }
+  #scoreboard th { color:var(--grey); font-size:11px; letter-spacing:1px; }
+  #nogl { position:fixed; bottom:44px; left:50%; transform:translateX(-50%); z-index:30; font-size:12px;
+    color:var(--amber); background:rgba(16,20,24,.85); padding:6px 10px; display:none; }
+  #start-screen { position:fixed; inset:0; z-index:40; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; background:rgba(16,20,24,.82); text-align:center; }
+  #start-screen h1 { font-size:44px; letter-spacing:8px; color:var(--amber); }
+  #start-screen p { font-size:14px; color:var(--ink); margin-top:10px; line-height:1.8; max-width:640px; }
+  #start-screen button { margin-top:22px; font:inherit; font-size:16px; letter-spacing:2px; color:var(--dark);
+    background:var(--amber); border:0; padding:12px 28px; cursor:pointer; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/three.module.min.js" } }
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="fallback"></canvas>
+<div id="hud-objective" class="hud"></div>
+<div id="hud-top" class="hud"><div id="hud-timer">BUY 12</div><div id="hud-score">0–0</div><div id="hud-alive"></div><div id="hud-bomb"></div></div>
+<div id="hud-feed" class="hud"></div>
+<div id="hud-bl" class="hud"><div id="hud-health">100</div><div id="hud-armour">0</div></div>
+<div id="hud-br" class="hud"><div id="hud-weapon">P-12</div><div id="hud-ammo">12 / 36</div><div id="hud-money">$800</div><div id="hud-grenade"></div></div>
+<div id="crosshair" class="hud"></div>
+<div id="hitmarker" class="hud"></div>
+<div id="hud-banner" class="hud"></div>
+<div id="hud-reload" class="hud"><span>RELOADING…</span><div class="track"><div class="bar"></div></div></div>
+<div id="hud-plant" class="hud"><span>PLANTING…</span><div class="track"><div class="bar"></div></div></div>
+<div id="hud-hint" class="hud"></div>
+<div id="hud-mute" class="hud"></div>
+<div id="buy-menu"><h2>BUY MENU — FOUNDRY-9</h2><p>Buy phase only • click or press 1–5 • money persists across rounds</p><div id="buy-list"></div></div>
+<div id="scoreboard"><h2>SCOREBOARD — TAB</h2><table><thead><tr><th>PLAYER</th><th>TEAM</th><th>KILLS</th><th>DEATHS</th><th>MONEY</th><th>STATUS</th></tr></thead><tbody id="board-body"></tbody></table></div>
+<div id="nogl">WebGL unavailable — software fallback renderer active (same map, same sim).</div>
+<div id="start-screen"><h1>FOUNDRY-9</h1><p>Three-lane bomb-defusal FPS • 5v5 bots • first to 5 rounds<br>
+WASD move • mouse aim • Shift walk-slow • Space jump • C crouch<br>
+R reload • 1/2 weapons • 4 grenade • B buy menu • E plant / defuse • Tab score • M mute</p>
+<button id="play-btn">CLICK TO PLAY</button></div>
+<script type="module" src="./src/main.js"></script>
+<script>
+  // Start screen: click to play (also unlocks audio + pointer lock).
+  document.getElementById('play-btn').addEventListener('click', () => {
+    document.getElementById('start-screen').style.display = 'none';
+    document.getElementById('game').click();
+  });
+  // In deterministic screenshot / self-test modes there is no click: hide it.
+  const q = new URLSearchParams(location.search);
+  if (q.get('shot') || q.get('selftest') === '1') {
+    document.getElementById('start-screen').style.display = 'none';
+  }
+</script>
+</body>
+</html>
