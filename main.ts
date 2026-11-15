@@ -48,8 +48,11 @@ for (const n of shotNames) {
 }
 
 // Copy game/ and screenshots/ into the output directory (fresh each run).
-rmSync(out, { recursive: true, force: true });
+// NEVER remove the output directory itself: in the grader /output is a bind
+// mount, and rmdir on a mount point fails EBUSY (run_completes FAIL, round 1).
+// Empty its contents instead and leave the directory in place.
 mkdirSync(out, { recursive: true });
+for (const name of readdirSync(out)) rmSync(join(out, name), { recursive: true, force: true });
 cpSync(gameDir, join(out, 'game'), { recursive: true });
 cpSync(shotsDir, join(out, 'screenshots'), { recursive: true });
 
